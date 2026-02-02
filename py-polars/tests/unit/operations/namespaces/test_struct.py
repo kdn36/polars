@@ -134,8 +134,10 @@ def test_unnest_raises_on_non_struct_23654() -> None:
 
 
 def test_json_encode_decimal_25881() -> None:
+    from decimal import Decimal
+    D = Decimal
     s = pl.Series(
-        [{"a": 1.23}, {"a": 4.56}, {"a": None}, {"a": 30.13}],
+        [{"a": D("1.23")}, {"a": D("4.56")}, {"a": None}, {"a": D("30.13")}],
         dtype=pl.Struct({"a": pl.Decimal(4, 2)}),
     )
     result = s.struct.json_encode()

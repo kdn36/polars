@@ -2103,7 +2103,7 @@ def test_nested_nonnullable_19158() -> None:
 D = Decimal
 
 
-@pytest.mark.parametrize("precision", range(1, 37, 2))
+@pytest.mark.parametrize("precision", range(2, 38, 2))
 @pytest.mark.parametrize(
     "nesting",
     [
@@ -2135,7 +2135,7 @@ def test_decimal_precision_nested_roundtrip(
     with decimal.localcontext() as ctx:
         ctx.prec = precision
 
-        decimal_dtype = pl.Decimal(precision=precision)
+        decimal_dtype = pl.Decimal(precision=precision, scale=1)
         values, dtype = nesting(decimal_dtype)
 
     df = pl.Series("a", values, dtype).to_frame()

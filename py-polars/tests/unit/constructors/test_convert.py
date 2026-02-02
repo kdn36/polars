@@ -21,7 +21,7 @@ def test_from_records_schema_inference() -> None:
 
 def test_from_dicts_schema_inference() -> None:
     data = [{"a": 1, "b": 2}, {"a": 3.1, "b": 4.5}]
-    result = pl.from_dicts(data)  # type: ignore[arg-type]
+    result = pl.from_dicts(data, strict=False)  # type: ignore[arg-type]
     assert result.to_dict(as_series=False) == {
         "a": [1.0, 3.1],
         "b": [2.0, 4.5],
