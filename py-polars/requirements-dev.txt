@@ -44,7 +44,9 @@ openpyxl
 xlsx2csv
 xlsxwriter>=3.2.9
 # Other I/O
-deltalake>=1.1.4
+# deltalake>=1.1.4 #kdn
+# deltalake>=1.4.1
+-e /home/koen/other/delta-rs/python
 # Csv
 zstandard
 # Plotting

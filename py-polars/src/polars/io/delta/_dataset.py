@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa
+
+# kdn todo
+import polars as pl
 from polars._utils.logging import eprint
 from polars.io.cloud.credential_provider._providers import (
     _get_credentials_from_provider_expiry_aware,
@@ -122,6 +127,7 @@ class DeltaDataset:
             eprint("DeltaDataset: to_dataset_scan(): begin path expansion")
 
         paths = table.file_uris()
+        print(paths) #kdn
 
         if self.table_uri().startswith("lakefs://"):
             paths = [path.replace("lakefs://", "s3://") for path in paths]
@@ -135,6 +141,8 @@ class DeltaDataset:
                 f"path expansion time: {elapsed:.3f}s"
             )
 
+        print(f"filter_columns: {filter_columns}") #kdn
+
         table_statistics = (
             _extract_table_statistics_from_delta_add_actions(
                 pl.DataFrame(table.get_add_actions()),
@@ -144,6 +152,29 @@ class DeltaDataset:
             )
             if filter_columns is not None
             else None
+        )
+
+        print(f"table_statistics: {table_statistics}") #kdn
+
+        reader_features = table.protocol().reader_features
+        has_deletion_vectors = (
+            reader_features is not None and "deletionVectors" in reader_features
+        )
+
+        deletion_vectors = (
+            _build_deletion_vectors(table, paths) if has_deletion_vectors else None
+        )
+        print(deletion_vectors) #kdn
+
+        # def _deletion_vector_callback() -> pl.DataFrame:
+        #     return _build_deletion_vectors(table, paths)
+        def _deletion_vector_callback() -> pl.DataFrame | None:
+            result = _build_deletion_vectors(table, paths)
+            print(f"callback returning: {type(result)}, {result}")
+            return result
+
+        deletion_vector_callback = (
+            _deletion_vector_callback if has_deletion_vectors else None
         )
 
         return scan_parquet(
@@ -157,6 +188,8 @@ class DeltaDataset:
             credential_provider=self.credential_provider_builder,  # type: ignore[arg-type]
             rechunk=self.rechunk,
             _table_statistics=table_statistics,
+            _deletion_vectors=deletion_vectors,
+            _deletion_vector_callback=deletion_vector_callback,
         ), version_key
 
     #
@@ -180,6 +213,10 @@ class DeltaDataset:
                 NOT_SUPPORTED_READER_VERSION,
                 SUPPORTED_READER_FEATURES,
             )
+
+            # Explicitly manage features as implemented on the client side
+            # TODO: bump minimum version of deltalake (kdn TODO)
+            SUPPORTED_READER_FEATURES.add("deletionVectors")
 
             from polars.io.delta._utils import _get_delta_lake_table
 
@@ -207,6 +244,8 @@ class DeltaDataset:
             )
 
             table_protocol = table.protocol()
+
+            print(table_protocol, flush=True)  # kdn
 
             if (
                 table_protocol.min_reader_version > MAX_SUPPORTED_READER_VERSION
@@ -238,3 +277,63 @@ class DeltaDataset:
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__ = state
+
+
+# kdn TODO move
+def _normalize_path(path: str) -> str:
+    """Normalize a file path to a URI with scheme."""
+    return Path(path).resolve().as_uri() if "://" not in path else path
+
+
+# kdn TODO: parrow or polars
+def _build_deletion_vectors(
+    table: DeltaTable,
+    paths: list[str],
+) -> pl.DataFrame | None:
+    """
+    Build a mapping of scan_source_idx -> deletion mask (True = deleted).
+
+    Returns None if the table has no deletion vectors.
+    The selection_vector from deltalake is a keep-mask (True = keep),
+    so we invert it to a deletion mask (True = deleted). # kdn TODO REVIEW
+    """
+    dv_table = pa.Table.from_batches(
+        list(pa.RecordBatchReader.from_stream(table.deletion_vectors()))
+    )
+
+    if len(dv_table) == 0:
+        return None
+
+    # kdn TODO check the path ordering and mapping and add multi-file test
+    path_to_idx = {_normalize_path(p): i for i, p in enumerate(paths)}
+    print(path_to_idx) #kdn
+
+    idx_list = []
+    mask_list = []
+    for filepath_str, selection_vector in zip(
+        dv_table.column("filepath").to_pylist(),
+        dv_table.column("selection_vector"),
+        strict=True,
+    ):
+        print(selection_vector) #kdn
+        if (idx := path_to_idx.get(filepath_str)) is not None:
+            print(idx) #kdn
+            idx_list.append(idx)
+            mask_list.append(pl.from_arrow(selection_vector.values))
+            # kdn TODO cleanup
+            # mask_list.append(pl.from_arrow(pc.invert(selection_vector.values)))
+
+    if not idx_list:
+        return None
+
+    df = pl.DataFrame(
+        {
+            "idx": pl.Series(idx_list, dtype=pl.UInt32),
+            "mask": pl.Series(mask_list),
+        }
+    )
+    #kdn
+    print("return _build_deletion_vectors") #kdn
+    print(df)
+    return df
+

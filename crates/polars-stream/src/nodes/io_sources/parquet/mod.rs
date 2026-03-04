@@ -76,6 +76,7 @@ struct InitializedState {
 #[async_trait]
 impl FileReader for ParquetFileReader {
     async fn initialize(&mut self) -> PolarsResult<()> {
+        dbg!("start ParquetFileReader::initialize"); //kdn
         let verbose = self.verbose;
 
         if self.init_data.is_some() {
@@ -140,6 +141,7 @@ impl FileReader for ParquetFileReader {
     }
 
     fn prepare_read(&mut self) -> PolarsResult<()> {
+        dbg!("start ParquetFileReader::prepare_read"); //kdn
         let wait_group_this_reader = WaitGroup::default();
         let prefetch_all_spawned_token = wait_group_this_reader.token();
 
@@ -160,6 +162,7 @@ impl FileReader for ParquetFileReader {
         &mut self,
         args: BeginReadArgs,
     ) -> PolarsResult<(FileReaderOutputRecv, JoinHandle<PolarsResult<()>>)> {
+        dbg!("start ParquetFileReader::begin_read"); //kdn
         let verbose = self.verbose;
 
         let InitializedState {

@@ -137,6 +137,7 @@ impl ReaderStarter {
             } else {
                 None
             };
+            dbg!(&external_filter_mask); //kdn
 
             // * This translates the `pre_slice` to physical offsets (i.e. apply before deleting rows).
             //   The slice remains the same if there are no row deletions.

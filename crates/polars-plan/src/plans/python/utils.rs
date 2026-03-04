@@ -7,6 +7,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 
 pub fn python_df_to_rust(py: Python, df: Bound<PyAny>) -> PolarsResult<DataFrame> {
+    dbg!("start python_df_to_rust"); //kdn
     let err = |_| polars_err!(ComputeError: "expected a polars.DataFrame; got {}", df);
     let pydf = df.getattr(intern!(py, "_df")).map_err(err)?;
 

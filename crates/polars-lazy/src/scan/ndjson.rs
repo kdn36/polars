@@ -143,6 +143,8 @@ impl LazyFileListReader for LazyJsonLineReader {
             extra_columns_policy: ExtraColumnsPolicy::Raise,
             include_file_paths: self.include_file_paths,
             deletion_files: None,
+            deletion_vectors: None,
+            deletion_vector_provider: None,
             table_statistics: None,
             row_count: None,
         };

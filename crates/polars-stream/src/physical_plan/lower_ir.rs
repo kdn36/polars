@@ -12,7 +12,7 @@ use polars_mem_engine::create_physical_plan;
 use polars_ops::frame::JoinType;
 use polars_plan::constants::get_literal_name;
 use polars_plan::dsl::default_values::DefaultFieldValues;
-use polars_plan::dsl::deletion::DeletionFilesList;
+use polars_plan::dsl::deletion::{DeletionFilesList, DeltaDeletionVectorCallback};
 use polars_plan::dsl::{CallbackSinkType, ExtraColumnsPolicy, FileScanIR, SinkTypeIR};
 use polars_plan::plans::expr_ir::{ExprIR, OutputName};
 use polars_plan::plans::{
@@ -760,6 +760,40 @@ pub fn lower_ir(
                     let pre_slice = unified_scan_args.pre_slice.clone();
                     let disable_morsel_split = disable_morsel_split.unwrap_or(true);
 
+                    // kdn IAMHERE
+                    let deletion_vector_callback =
+                        unified_scan_args.deletion_vector_provider.map(|provider| {
+                            DeltaDeletionVectorCallback(Arc::new(move || provider.call()))
+                        });
+                    //             let deletion_vector_callback = unified_scan_args.deletion_vector_callback.map(|py_obj| {
+                    //     let py_obj = Arc::new(py_obj);
+                    //     DeltaDeletionVectorCallback(Arc::new(move || {
+                    //         Python::attach(|py| {
+                    //             let result_df_wrapper = py_obj.call0(py)?;
+                    //             // unpack the wrapper in a PyDataFrame
+                    //             let py_pydf = result_df_wrapper.getattr(py, "_df").map_err(|_| {
+                    //                 let pytype = result_df_wrapper.bind(py).get_type();
+                    //                 PolarsError::ComputeError(
+                    //                     format!("Expected the call to deletion_vectors() to return a 'DataFrame', got a '{pytype}'",)
+                    //                         .into(),
+                    //                 )
+                    //             })?;
+                    //             // Downcast to Rust
+                    //             match py_pydf.extract::<PyDataFrame>(py) {
+                    //                 Ok(pydf) => {
+                    //                     dbg!("match arm Ok(pydf)");
+                    //                     Ok(pydf.df.into_inner())
+                    //                 },
+                    //                 Err(_) => {
+                    //                     //kdn TODO TBD - should we try or simply propagate the error?
+                    //                     dbg!("match arm Err(_)");
+                    //                     python_df_to_rust(py, result_df_wrapper.into_bound(py))
+                    //                 },
+                    //             }
+                    //         })
+                    //     }))
+                    // });
+
                     let mut multi_scan_node = PhysNodeKind::MultiScan {
                         scan_sources,
                         file_reader_builder,
@@ -779,6 +813,15 @@ pub fn lower_ir(
                         deletion_files: DeletionFilesList::filter_empty(
                             unified_scan_args.deletion_files,
                         ),
+                        deletion_vectors: unified_scan_args.deletion_vectors,
+                        // kdn TODO REVIEW
+                        // deletion_vector_callback: unified_scan_args
+                        //     .deletion_vector_callback
+                        //     .map(|cb| DeltaDeletionVectorCallback(cb)),
+                        // kdn MARK from unified_scan_args into deletion_vector_callback
+                        // deletion_vector_callback: unified_scan_args.deletion_vector_callback,
+                        deletion_vector_callback,
+                        //kdn IAMHERE
                         table_statistics: unified_scan_args.table_statistics,
                         file_schema,
                         disable_morsel_split,

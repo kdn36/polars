@@ -14,13 +14,17 @@ use polars_io::parquet::metadata::FileMetadataRef;
 #[cfg(feature = "parquet")]
 use polars_io::parquet::read::ParquetOptions;
 use polars_io::{HiveOptions, RowIndex};
+use polars_utils::pl_serialize::{python_object_deserialize, python_object_serialize};
 use polars_utils::slice_enum::Slice;
+use pyo3::types::PyModule;
+use pyo3::{Py, PyAny, Python};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use strum_macros::IntoStaticStr;
 
 use super::*;
 use crate::dsl::default_values::DefaultFieldValues;
+use crate::dsl::deletion::{DeltaDeletionVectorCallback, DeltaDeletionVectorProvider};
 pub mod default_values;
 pub mod deletion;
 
@@ -276,6 +280,104 @@ impl std::ops::Deref for TableStatistics {
     }
 }
 
+//kdn TODO RM
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "dsl-schema", derive(schemars::JsonSchema))]
+pub struct DeletionVectors(pub Arc<DataFrame>);
+
+impl PartialEq for DeletionVectors {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for DeletionVectors {}
+
+impl Hash for DeletionVectors {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Arc::as_ptr(&self.0) as *const () as usize);
+    }
+}
+
+impl std::ops::Deref for DeletionVectors {
+    type Target = Arc<DataFrame>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+//kdn TODO move?
+#[derive(Clone)]
+pub struct PyCallback(pub Arc<Py<PyAny>>);
+//kdn TODO constructor (keep field private)
+
+impl PartialEq for PyCallback {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PyCallback {}
+
+impl Hash for PyCallback {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+impl std::fmt::Debug for PyCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PyCallback")
+    }
+}
+
+impl PyCallback {
+    fn to_pickle_bytes(&self) -> PolarsResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        python_object_serialize(&self.0, &mut bytes)?;
+        Ok(bytes)
+    }
+
+    fn from_pickle_bytes(bytes: &[u8]) -> PolarsResult<Self> {
+        let py = python_object_deserialize(bytes)?;
+        Ok(Self(Arc::new(py)))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for PyCallback {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let bytes = self.to_pickle_bytes().map_err(serde::ser::Error::custom)?;
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for PyCallback {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = Vec::<u8>::deserialize(deserializer)?;
+        Self::from_pickle_bytes(&bytes).map_err(serde::de::Error::custom)
+    }
+}
+
+// #[cfg(feature = "dsl-schema")]
+// impl schemars::JsonSchema for PyCallback {
+//     fn schema_name() -> String {
+//         "PyCallback".to_string()
+//     }
+
+//     fn json_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+//         schemars::schema::SchemaObject {
+//             instance_type: Some(schemars::schema::InstanceType::String.into()),
+//             format: Some("binary".to_string()),
+//             ..Default::default()
+//         }
+//         .into()
+//     }
+// }
+
 /// Scan arguments shared across different scan types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -307,6 +409,11 @@ pub struct UnifiedScanArgs {
     pub include_file_paths: Option<PlSmallStr>,
 
     pub deletion_files: Option<DeletionFilesList>,
+    pub deletion_vectors: Option<DeletionVectors>,
+    //kdn TODO REVIEW
+    #[cfg_attr(feature = "serde", serde(skip))]
+    // pub deletion_vector_callback: Option<DeltaDeletionVectorCallback>, //kdn TODO RM
+    pub deletion_vector_provider: Option<DeltaDeletionVectorProvider>,
     pub table_statistics: Option<TableStatistics>,
     /// Stores (physical, deleted) row counts of the table if known upfront (e.g. for Iceberg).
     /// This allows for row-count queries to succeed without scanning all files.
@@ -352,6 +459,8 @@ impl Default for UnifiedScanArgs {
             extra_columns_policy: ExtraColumnsPolicy::default(),
             include_file_paths: None,
             deletion_files: None,
+            deletion_vectors: None,
+            deletion_vector_provider: None,
             table_statistics: None,
             row_count: None,
         }

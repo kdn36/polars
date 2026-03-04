@@ -20,6 +20,7 @@ pub mod conversion;
 pub mod dataframe;
 pub mod dataset;
 pub mod datatypes;
+pub mod delta_dv_provider_funcs; // kdn REVIEW LOCATION
 pub mod error;
 pub mod exceptions;
 pub mod export;

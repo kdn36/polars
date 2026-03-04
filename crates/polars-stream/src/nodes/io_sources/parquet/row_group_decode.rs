@@ -41,6 +41,7 @@ impl RowGroupDecoder {
         &self,
         mut row_group_data: RowGroupData,
     ) -> PolarsResult<DataFrame> {
+        dbg!("start RowGroupDecoder::row_group_data_to_df"); //kdn
         // If the slice consumes the entire row-group. Don't slice. This allows for prefiltering to
         // happen more often until we properly support prefiltering with pre-slices.
         row_group_data.slice.take_if(|slice| {
@@ -61,6 +62,7 @@ impl RowGroupDecoder {
         &self,
         row_group_data: RowGroupData,
     ) -> PolarsResult<DataFrame> {
+        dbg!("start row_group_data_to_df_impl"); //kdn
         let row_group_data = Arc::new(row_group_data);
 
         let out_width = self.row_index.is_some() as usize + self.projected_arrow_fields.len();
@@ -300,6 +302,7 @@ async fn filter_cols(
     mask: &BooleanChunked,
     target_values_per_thread: usize,
 ) -> PolarsResult<Vec<Column>> {
+    dbg!("start filter_cols"); //kdn
     if cols.is_empty() {
         return Ok(cols);
     }
@@ -396,6 +399,7 @@ impl RowGroupDecoder {
         &self,
         row_group_data: RowGroupData,
     ) -> PolarsResult<DataFrame> {
+        dbg!("start RowGroupDecoder::row_group_data_to_df_prefiltered"); //kdn
         debug_assert!(row_group_data.slice.is_none()); // Invariant of the optimizer.
         assert!(self.predicate_field_indices.len() <= self.projected_arrow_fields.len());
 
@@ -442,6 +446,7 @@ impl RowGroupDecoder {
             let projected_arrow_fields = self.projected_arrow_fields.clone();
             let row_group_data = row_group_data.clone();
 
+            //kdn MARK
             parallelize_first_to_local(
                 TaskPriority::Low,
                 (0..self.predicate_field_indices.len())
@@ -486,6 +491,7 @@ impl RowGroupDecoder {
             )
         };
 
+        //kdn NOTE: update mask here: AND with DV selection vector
         for fut in task_handles {
             for (c, m) in fut.await? {
                 live_columns.push(c);

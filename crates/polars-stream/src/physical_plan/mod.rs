@@ -8,9 +8,9 @@ use polars_error::PolarsResult;
 use polars_io::RowIndex;
 use polars_io::cloud::CloudOptions;
 use polars_ops::frame::JoinArgs;
-use polars_plan::dsl::deletion::DeletionFilesList;
+use polars_plan::dsl::deletion::{DeletionFilesList, DeltaDeletionVectorCallback};
 use polars_plan::dsl::{
-    CastColumnsPolicy, FileSinkOptions, JoinTypeOptionsIR, MissingColumnsPolicy,
+    CastColumnsPolicy, DeletionVectors, FileSinkOptions, JoinTypeOptionsIR, MissingColumnsPolicy,
     PartitionedSinkOptionsIR, PredicateFileSkip, ScanSources, TableStatistics,
 };
 use polars_plan::plans::expr_ir::ExprIR;
@@ -307,6 +307,8 @@ pub enum PhysNodeKind {
         forbid_extra_columns: Option<ForbidExtraColumns>,
 
         deletion_files: Option<DeletionFilesList>,
+        deletion_vectors: Option<DeletionVectors>,
+        deletion_vector_callback: Option<DeltaDeletionVectorCallback>,
         table_statistics: Option<TableStatistics>,
 
         /// Schema of columns contained in the file. Does not contain external columns (e.g. hive / row_index).

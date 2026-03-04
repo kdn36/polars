@@ -239,6 +239,7 @@ impl ApplyExtraOps {
         // Row position of this morsel relative to the start of the current file.
         current_row_position: RowCounter,
     ) -> PolarsResult<()> {
+        dbg!("start ApplyExtraOps::apply_to_df"); //kdn
         let Self::Initialized {
             physical_pre_slice,
             external_filter_mask,

@@ -218,6 +218,8 @@ pub(super) fn expand_datasets(
                             extra_columns_policy,
                             include_file_paths: _include_file_paths @ None,
                             deletion_files,
+                            deletion_vectors,
+                            deletion_vector_provider,
                             table_statistics,
                             row_count,
                         } = resolved_unified_scan_args.as_ref()
@@ -237,6 +239,9 @@ pub(super) fn expand_datasets(
                         unified_scan_args.column_mapping = column_mapping.clone();
                         unified_scan_args.default_values = default_values.clone();
                         unified_scan_args.deletion_files = deletion_files.clone();
+                        unified_scan_args.deletion_vectors = deletion_vectors.clone();
+                        unified_scan_args.deletion_vector_provider =
+                            deletion_vector_provider.clone();
                         unified_scan_args.table_statistics = table_statistics.clone();
                         unified_scan_args.row_count = *row_count;
 

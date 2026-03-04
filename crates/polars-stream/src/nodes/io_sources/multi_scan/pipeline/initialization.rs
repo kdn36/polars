@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use arrow::array::BooleanArray;
 use futures::StreamExt;
-use polars_core::prelude::PlHashMap;
+use polars_core::prelude::{BooleanChunked, PlHashMap};
 use polars_error::PolarsResult;
 use polars_io::pl_async::get_runtime;
 use polars_mem_engine::scan_predicate::initialize_scan_predicate;
 use polars_plan::dsl::PredicateFileSkip;
+use polars_utils::pl_str::PlSmallStr;
 use polars_utils::row_counter::RowCounter;
 use polars_utils::slice_enum::Slice;
 
@@ -35,6 +37,7 @@ pub fn initialize_multi_scan_pipeline(
     config: Arc<MultiScanConfig>,
     execution_state: StreamingExecutionState,
 ) -> InitializedPipelineState {
+    dbg!("start initialize_multi_scan_pipeline"); //kdn
     assert!(config.num_pipelines() > 0);
 
     if config.verbose {
@@ -54,6 +57,9 @@ pub fn initialize_multi_scan_pipeline(
             config.disable_morsel_split,
         );
     }
+
+    dbg!(&config.deletion_files);
+    dbg!(&config.deletion_vectors);
 
     let bridge_state = Arc::new(Mutex::new(BridgeState::NotYetStarted));
 
@@ -79,6 +85,7 @@ async fn finish_initialize_multi_scan_pipeline(
     bridge_recv_port_tx: connector::Sender<BridgeRecvPort>,
     execution_state: StreamingExecutionState,
 ) -> PolarsResult<()> {
+    dbg!("start finish_initialize_multi_scan_pipeline"); //kdn
     let verbose = config.verbose;
 
     let (skip_files_mask, predicate) = match config.predicate_file_skip_applied {
@@ -222,6 +229,29 @@ async fn finish_initialize_multi_scan_pipeline(
         },
     };
 
+    //kdn TODO REVIEW
+    // NEW: merge Delta deletion vectors into row_deletions
+    let mut row_deletions = row_deletions;
+    if let Some(deletion_vectors) = &config.deletion_vectors {
+        dbg!("match arm map deletion_vectors into row_deletions"); //kdn
+        let df = deletion_vectors.0.as_ref();
+        let idx_col = df.column("idx")?.u32()?;
+        let mask_col = df.column("mask")?.list()?;
+
+        for (idx, mask) in idx_col.iter().zip(mask_col.iter()) {
+            let idx = idx.unwrap() as usize;
+            let mask_array = mask.unwrap();
+            let mask_bool = mask_array.as_any().downcast_ref::<BooleanArray>().unwrap();
+            //kdn TODO REVIEW unsafe
+            let mask: BooleanChunked = unsafe {
+                BooleanChunked::from_chunks(PlSmallStr::EMPTY, vec![Box::new(mask_bool.clone())])
+            };
+            row_deletions.insert(idx, ExternalFilterMask::DeltaDeletionVector { mask });
+        }
+    }
+
+    // kdn TODO IAMHERE
+
     let initialized_row_deletions: Arc<PlHashMap<usize, ExternalFilterMask>> =
         Arc::new(row_deletions);
 
@@ -316,11 +346,23 @@ async fn finish_initialize_multi_scan_pipeline(
         let sources = config.sources.clone();
         let cloud_options = config.cloud_options.clone();
         let file_reader_builder = config.file_reader_builder.clone();
-        let deletion_files_provider = DeletionFilesProvider::new(
-            config.deletion_files.clone(),
-            &execution_state,
-            config.io_metrics(),
-        );
+        //kdn TODO
+        //kdn IAMHERE
+        let deletion_files_provider = match (
+            config.deletion_files.as_ref(),
+            config.deletion_vector_callback.as_ref(),
+        ) {
+            (Some(_), Some(_)) => todo!(), //kdn ERR
+            (Some(deletion_files), None) => DeletionFilesProvider::from_deletion_files(
+                Some(deletion_files.clone()),
+                &execution_state,
+                config.io_metrics(),
+            ),
+            (None, Some(callback)) => {
+                DeletionFilesProvider::from_delta_callback(Some(callback.clone()))
+            },
+            (None, None) => DeletionFilesProvider::None,
+        };
 
         futures::stream::iter(range)
             .map(move |scan_source_idx| {

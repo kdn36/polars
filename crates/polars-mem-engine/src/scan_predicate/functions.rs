@@ -13,7 +13,8 @@ use polars_plan::dsl::default_values::{
 };
 use polars_plan::dsl::deletion::DeletionFilesList;
 use polars_plan::dsl::{
-    FileScanIR, Operator, PredicateFileSkip, ScanSources, TableStatistics, UnifiedScanArgs,
+    DeletionVectors, FileScanIR, Operator, PredicateFileSkip, ScanSources, TableStatistics,
+    UnifiedScanArgs,
 };
 use polars_plan::plans::expr_ir::{ExprIR, OutputName};
 use polars_plan::plans::hive::HivePartitionsDf;
@@ -309,6 +310,7 @@ pub fn apply_scan_predicate_to_scan_ir(
     ir_arena: &mut Arena<IR>,
     expr_arena: &mut Arena<AExpr>,
 ) -> PolarsResult<()> {
+    dbg!("start apply_scan_predicate_to_scan_ir"); //kdn
     let scan_ir_schema = IR::schema(ir_arena.get(scan_ir_node), ir_arena).into_owned();
     let scan_ir = ir_arena.get_mut(scan_ir_node);
 
@@ -324,6 +326,7 @@ pub fn apply_scan_predicate_to_scan_ir(
     else {
         unreachable!()
     };
+    dbg!(&unified_scan_args); //kdn
 
     if let Some(hive_parts) = hive_parts.as_mut() {
         *hive_parts = hive_parts.filter_columns(&scan_ir_schema);
@@ -345,6 +348,8 @@ pub fn apply_scan_predicate_to_scan_ir(
 
     let verbose = config::verbose();
 
+    dbg!(&sources);
+
     let scan_predicate = create_scan_predicate(
         predicate,
         expr_arena,
@@ -362,6 +367,7 @@ pub fn apply_scan_predicate_to_scan_ir(
         unified_scan_args.table_statistics.as_ref(),
         verbose,
     )?;
+    dbg!(&skip_files_mask);
 
     if let Some(skip_files_mask) = skip_files_mask {
         assert_eq!(skip_files_mask.len(), sources.len());
@@ -396,6 +402,8 @@ pub fn filter_scan_ir<I>(scan_ir: &mut IR, selected_path_indices: I)
 where
     I: Iterator<Item = usize> + Clone,
 {
+    dbg!("filter_scan_ir"); //kdn
+    dbg!(&selected_path_indices.clone().collect::<Vec<_>>());
     let IR::Scan {
         sources,
         file_info:
@@ -445,8 +453,10 @@ where
         missing_columns_policy: _,
         extra_columns_policy: _,
         include_file_paths: _,
-        table_statistics,
         deletion_files,
+        deletion_vectors,
+        deletion_vector_provider, //kdn TODO
+        table_statistics,
         row_count,
     } = unified_scan_args.as_mut()
     else {
@@ -519,6 +529,23 @@ where
             out.map(|x| DeletionFilesList::IcebergPositionDelete(Arc::new(x)))
         },
     });
+
+    //kdn TODO - anything to do here?
+    *deletion_vectors = deletion_vectors.as_ref().map(|x| {
+        let df_height = IdxSize::try_from(x.0.height()).unwrap();
+
+        assert!(selected_path_indices_idxsize.iter().all(|x| *x < df_height));
+
+        DeletionVectors(Arc::new(unsafe {
+            x.0.take_slice_unchecked(&selected_path_indices_idxsize)
+        }))
+    });
+
+    //kdn TODO - BIG TODO TBD (..filter our source_idx and re-index, but it's lazy)
+    dbg!("BIG TODO: map selected_path_indices in filter_scan_ir"); //kdn
+    *deletion_vector_provider = deletion_vector_provider
+        .take()
+        .map(|provider| provider.with_selected_indices(selected_path_indices.clone()));
 
     *table_statistics = table_statistics.as_ref().map(|x| {
         let df_height = IdxSize::try_from(x.0.height()).unwrap();

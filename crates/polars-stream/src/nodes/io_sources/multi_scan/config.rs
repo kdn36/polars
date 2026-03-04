@@ -4,9 +4,10 @@ use polars_core::schema::SchemaRef;
 use polars_io::RowIndex;
 use polars_io::cloud::CloudOptions;
 use polars_io::predicates::ScanIOPredicate;
-use polars_plan::dsl::deletion::DeletionFilesList;
+use polars_plan::dsl::deletion::{DeletionFilesList, DeltaDeletionVectorCallback};
 use polars_plan::dsl::{
-    CastColumnsPolicy, MissingColumnsPolicy, PredicateFileSkip, ScanSources, TableStatistics,
+    CastColumnsPolicy, DeletionVectors, MissingColumnsPolicy, PredicateFileSkip, ScanSources,
+    TableStatistics,
 };
 use polars_plan::plans::hive::HivePartitionsDf;
 use polars_utils::pl_str::PlSmallStr;
@@ -43,6 +44,8 @@ pub struct MultiScanConfig {
     pub cast_columns_policy: CastColumnsPolicy,
     pub forbid_extra_columns: Option<ForbidExtraColumns>,
     pub deletion_files: Option<DeletionFilesList>,
+    pub deletion_vectors: Option<DeletionVectors>,
+    pub deletion_vector_callback: Option<DeltaDeletionVectorCallback>,
     pub table_statistics: Option<TableStatistics>,
 
     pub num_pipelines: RelaxedCell<usize>,
