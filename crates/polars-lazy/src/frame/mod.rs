@@ -657,6 +657,7 @@ impl LazyFrame {
         }
 
         let mut ir_plan = self.to_alp_optimized()?;
+        dbg!("has logical plan"); //kdn
 
         ir_plan.ensure_root_node_is_sink();
 

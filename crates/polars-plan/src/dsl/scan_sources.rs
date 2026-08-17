@@ -399,6 +399,7 @@ impl ScanSourceRef<'_> {
 
     /// Turn the scan source into a memory slice
     pub fn to_memslice(&self) -> PolarsResult<Buffer<u8>> {
+        dbg!("start ScanSourceRef::to_memslice");
         self.to_buffer_possibly_async(false, None, 0)
     }
 
@@ -409,6 +410,7 @@ impl ScanSourceRef<'_> {
         open_cache_entry: F,
         run_async: bool,
     ) -> PolarsResult<Buffer<u8>> {
+        dbg!("start ScanSourceRef::to_buffer_async");
         match self {
             ScanSourceRef::Path(path) => {
                 let file = if run_async {
@@ -474,6 +476,7 @@ impl ScanSourceRef<'_> {
         #[cfg(not(feature = "cloud"))] cache_entries: Option<&()>,
         index: usize,
     ) -> PolarsResult<Buffer<u8>> {
+        dbg!("start ScanSourceRef::to_buffer_possibly_async");
         match self {
             Self::Path(path) => {
                 let file = if run_async {
@@ -497,6 +500,7 @@ impl ScanSourceRef<'_> {
         cloud_options: Option<&CloudOptions>,
         io_metrics: Option<Arc<IOMetrics>>,
     ) -> PolarsResult<DynByteSource> {
+        dbg!("start ScanSourceRef::to_dyn_byte_source");//kdn MARK
         match self {
             Self::Path(path) => {
                 builder

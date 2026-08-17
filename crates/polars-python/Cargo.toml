@@ -265,6 +265,9 @@ io = [
   "clipboard",
 ]
 
+#kdn
+io_uring = ["polars-io/io_uring"]
+
 optimizations = [
   "cse",
   "polars/fused",
@@ -310,6 +313,8 @@ rtcompat = ["polars/bigidx"]
 # with --no-default-features --features=full for targets without simd
 default = [
   "full",
+  #kdn HACK
+  "io_uring"
 ]
 
 [lints]

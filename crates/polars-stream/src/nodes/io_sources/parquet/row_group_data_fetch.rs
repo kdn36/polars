@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use polars_buffer::Buffer;
 use polars_core::prelude::PlHashMap;
@@ -15,6 +15,11 @@ use polars_utils::pl_str::PlSmallStr;
 
 use crate::nodes::io_sources::parquet::projection::ArrowFieldProjection;
 use crate::utils::tokio_handle_ext;
+
+//kdn TODO
+//kdn DEV STATICS (3 = willneed)
+static PLDEV_PREFETCH_FADV: LazyLock<usize> =
+    LazyLock::new(|| std::env::var("PLDEV_PREFETCH_FADV").map_or(0, |x| x.parse::<usize>().unwrap()));
 
 /// Represents byte-data that can be transformed into a DataFrame after some computation.
 pub(super) struct RowGroupData {
@@ -126,8 +131,8 @@ impl RowGroupDataFetcher {
 
             let handle = ASYNC.spawn(async move {
                 let row_group_metadata = &metadata.row_groups[idx];
-                let fetched_bytes =
-                    if let DynByteSource::Buffer(mem_slice) = current_byte_source.as_ref() {
+                let fetched_bytes = match current_byte_source.as_ref() {
+                    DynByteSource::Buffer(mem_slice) => {
                         // Skip byte range calculation for `no_prefetch`.
                         if memory_prefetch_func as usize
                             != polars_utils::mem::prefetch::no_prefetch as *const () as usize
@@ -157,39 +162,167 @@ impl RowGroupDataFetcher {
                             offset: 0,
                             buffer: mem_slice,
                         }
-                    } else if !is_full_projection {
-                        let mut ranges = get_row_group_byte_ranges_for_projection(
-                            row_group_metadata,
-                            &mut projection.iter().map(|x| &x.arrow_field().name),
-                        )
-                        .collect::<Vec<_>>();
-
-                        let n_ranges = ranges.len();
-
-                        let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
-
-                        assert_eq!(bytes_map.len(), n_ranges);
-
-                        FetchedBytes::BytesMap(bytes_map)
-                    } else {
-                        // We still prefer `get_ranges()` over a single `get_range()` for downloading
-                        // the entire row group, as it can have less memory-copying. A single `get_range()`
-                        // would naively concatenate the memory blocks of the entire row group, while
-                        // `get_ranges()` can skip concatenation since the downloaded blocks are
-                        // aligned to the columns.
-                        let mut ranges = row_group_metadata
-                            .byte_ranges_iter()
-                            .map(|x| x.start as usize..x.end as usize)
+                    },
+                    //kdn BREAK OUT FOR NOW
+                    // kdn TOOD for io_uring use posix_fadvise(fd, start, len, POSIX_FADV_WILLNEED) .. but
+                    // earlier in the pipeline (not back-to-back)
+                    DynByteSource::IoUring(source) => {
+                        if !is_full_projection {
+                            let mut ranges = get_row_group_byte_ranges_for_projection(
+                                row_group_metadata,
+                                &mut projection.iter().map(|x| &x.arrow_field().name),
+                            )
                             .collect::<Vec<_>>();
 
-                        let n_ranges = ranges.len();
+                            //kdn TODO move up on the pipeline
+                            match *PLDEV_PREFETCH_FADV {
+                                0 => {},
+                                3 => current_byte_source.hint_will_need(&ranges),
+                                n => {
+                                    unreachable!("unexpected value for PLDEV_PREFETCH_FADV: {}", n)
+                                },
+                            }
 
-                        let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
+                            let n_ranges = ranges.len();
 
-                        assert_eq!(bytes_map.len(), n_ranges);
+                            let bytes_map = source.get_ranges(&mut ranges).await?;
 
-                        FetchedBytes::BytesMap(bytes_map)
-                    };
+                            assert_eq!(bytes_map.len(), n_ranges);
+
+                            FetchedBytes::BytesMap(bytes_map)
+                        } else {
+                            // We still prefer `get_ranges()` over a single `get_range()` for downloading
+                            // the entire row group, as it can have less memory-copying. A single `get_range()`
+                            // would naively concatenate the memory blocks of the entire row group, while
+                            // `get_ranges()` can skip concatenation since the downloaded blocks are
+                            // aligned to the columns.
+                            let mut ranges = row_group_metadata
+                                .byte_ranges_iter()
+                                .map(|x| x.start as usize..x.end as usize)
+                                .collect::<Vec<_>>();
+
+                            //kdn TODO: move up in the pipeline
+                            match *PLDEV_PREFETCH_FADV {
+                                0 => {},
+                                3 => current_byte_source.hint_will_need(&ranges),
+                                n => {
+                                    unreachable!("unexpected value for PLDEV_PREFETCH_FADV: {}", n)
+                                },
+                            }
+
+                            let n_ranges = ranges.len();
+
+                            let bytes_map = source.get_ranges(&mut ranges).await?;
+
+                            assert_eq!(bytes_map.len(), n_ranges);
+
+                            FetchedBytes::BytesMap(bytes_map)
+                        }
+                    },
+                    DynByteSource::Cloud(_) => {
+                        if !is_full_projection {
+                            let mut ranges = get_row_group_byte_ranges_for_projection(
+                                row_group_metadata,
+                                &mut projection.iter().map(|x| &x.arrow_field().name),
+                            )
+                            .collect::<Vec<_>>();
+
+                            let n_ranges = ranges.len();
+
+                            let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
+
+                            assert_eq!(bytes_map.len(), n_ranges);
+
+                            FetchedBytes::BytesMap(bytes_map)
+                        } else {
+                            // We still prefer `get_ranges()` over a single `get_range()` for downloading
+                            // the entire row group, as it can have less memory-copying. A single `get_range()`
+                            // would naively concatenate the memory blocks of the entire row group, while
+                            // `get_ranges()` can skip concatenation since the downloaded blocks are
+                            // aligned to the columns.
+                            let mut ranges = row_group_metadata
+                                .byte_ranges_iter()
+                                .map(|x| x.start as usize..x.end as usize)
+                                .collect::<Vec<_>>();
+
+                            let n_ranges = ranges.len();
+
+                            let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
+
+                            assert_eq!(bytes_map.len(), n_ranges);
+
+                            FetchedBytes::BytesMap(bytes_map)
+                        }
+                    },
+                };
+
+                // kdn OLD: TODO RM
+                // let fetched_bytes =
+                //     if let DynByteSource::Buffer(mem_slice) = current_byte_source.as_ref() {
+                //         // Skip byte range calculation for `no_prefetch`.
+                //         if memory_prefetch_func as usize
+                //             != polars_utils::mem::prefetch::no_prefetch as *const () as usize
+                //         {
+                //             let slice = mem_slice.0.as_ref();
+
+                //             if !is_full_projection {
+                //                 for range in get_row_group_byte_ranges_for_projection(
+                //                     row_group_metadata,
+                //                     &mut projection.iter().map(|x| &x.arrow_field().name),
+                //                 ) {
+                //                     memory_prefetch_func(unsafe { slice.get_unchecked(range) })
+                //                 }
+                //             } else {
+                //                 let range = row_group_metadata.full_byte_range();
+                //                 let range = range.start as usize..range.end as usize;
+
+                //                 memory_prefetch_func(unsafe { slice.get_unchecked(range) })
+                //             };
+                //         }
+
+                //         // We have a mmapped or in-memory slice representing the entire
+                //         // file that can be sliced directly, so we can skip the byte-range
+                //         // calculations and HashMap allocation.
+                //         let mem_slice = mem_slice.0.clone();
+                //         FetchedBytes::Buffer {
+                //             offset: 0,
+                //             buffer: mem_slice,
+                //         }
+                //         // kdn TODO breakout ObjectByteSource vs IoUringByteSource
+                //         // kdn TOOD for io_uring use posix_fadvise(fd, start, len, POSIX_FADV_WILLNEED)
+                //     } else if !is_full_projection {
+                //         let mut ranges = get_row_group_byte_ranges_for_projection(
+                //             row_group_metadata,
+                //             &mut projection.iter().map(|x| &x.arrow_field().name),
+                //         )
+                //         .collect::<Vec<_>>();
+
+                //         let n_ranges = ranges.len();
+
+                //         let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
+
+                //         assert_eq!(bytes_map.len(), n_ranges);
+
+                //         FetchedBytes::BytesMap(bytes_map)
+                //     } else {
+                //         // We still prefer `get_ranges()` over a single `get_range()` for downloading
+                //         // the entire row group, as it can have less memory-copying. A single `get_range()`
+                //         // would naively concatenate the memory blocks of the entire row group, while
+                //         // `get_ranges()` can skip concatenation since the downloaded blocks are
+                //         // aligned to the columns.
+                //         let mut ranges = row_group_metadata
+                //             .byte_ranges_iter()
+                //             .map(|x| x.start as usize..x.end as usize)
+                //             .collect::<Vec<_>>();
+
+                //         let n_ranges = ranges.len();
+
+                //         let bytes_map = current_byte_source.get_ranges(&mut ranges).await?;
+
+                //         assert_eq!(bytes_map.len(), n_ranges);
+
+                //         FetchedBytes::BytesMap(bytes_map)
+                //     };
 
                 PolarsResult::Ok(RowGroupData {
                     fetched_bytes,

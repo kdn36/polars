@@ -86,6 +86,8 @@ dtypes = ["polars-python/dtypes"]
 operations = ["polars-python/operations"]
 
 io = ["polars-python/io"]
+#kdn
+io_uring = ["polars-python/io_uring"]
 
 optimizations = ["polars-python/optimizations"]
 fast_alloc = ["polars-python/fast_alloc"]
@@ -110,7 +112,8 @@ full = [
   "fast_alloc",
 ]
 
-default = ["full", "nightly"]
+#kdn
+default = ["full", "nightly", "io_uring"]
 
 [lints]
 workspace = true

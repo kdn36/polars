@@ -79,6 +79,7 @@ impl FileWriterStarter for ParquetWriterStarter {
         file: FileOpenTaskHandle,
         num_pipelines: std::num::NonZeroUsize,
     ) -> PolarsResult<executor::JoinHandle<PolarsResult<()>>> {
+        dbg!("start ParquetWriterStarter::start_file_writer");
         let InitializedState {
             encodings,
             schema_descriptor,

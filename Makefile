@@ -66,6 +66,10 @@ ifeq ($(ARCH),amd64)
 endif
 
 override RUSTFLAGS+=$(FEAT_RUSTFLAGS)
+#kdn
+TOKIO_UNSTABLE_RUSTFLAGS=--cfg tokio_unstable
+override RUSTFLAGS+=$(TOKIO_UNSTABLE_RUSTFLAGS)
+
 override CFLAGS+=$(FEAT_CFLAGS)
 
 # Define command to filter pip warnings when running maturin

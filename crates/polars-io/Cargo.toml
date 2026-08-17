@@ -27,7 +27,6 @@ blake3 = { workspace = true, optional = true }
 bytes = { workspace = true }
 chrono = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
-# kdn TODO CHECK
 crossbeam-queue = { workspace = true }
 fast-float2 = { workspace = true, optional = true }
 fastrand = { workspace = true, optional = true }
@@ -36,6 +35,8 @@ futures = { workspace = true, optional = true }
 glob = { version = "0.3" }
 hashbrown = { workspace = true }
 itoa = { workspace = true, optional = true }
+#kdn ADDED
+libc = { workspace = true }
 memchr = { workspace = true }
 memmap = { workspace = true }
 num-traits = { workspace = true }
@@ -61,6 +62,10 @@ zstd = { workspace = true, optional = true }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 fs4 = { version = "1.1", features = ["sync"], optional = true }
 home = "0.5.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt", "fs", "io-uring"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -154,6 +159,8 @@ temporal = ["dtype-datetime", "dtype-date", "dtype-time"]
 simd = []
 python = ["pyo3", "polars-error/python", "polars-utils/python"]
 allow_unused = []
+#kdn
+io_uring = ["dep:libc"]
 
 [package.metadata.docs.rs]
 all-features = true

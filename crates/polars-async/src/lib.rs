@@ -45,6 +45,7 @@ impl RuntimeManager {
             .on_thread_stop(move || { tokio_thread_count_stop.fetch_sub(1); })
             .enable_io()
             .enable_time()
+            .enable_io_uring() //kdn
             .build()
             .unwrap();
 

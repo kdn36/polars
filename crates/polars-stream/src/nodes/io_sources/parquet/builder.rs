@@ -126,17 +126,21 @@ impl FileReaderBuilder for ParquetReaderBuilder {
         cloud_options: Option<Arc<CloudOptions>>,
         scan_source_idx: usize,
     ) -> Box<dyn FileReader> {
+        dbg!("start build_file_reader");
         use crate::nodes::io_sources::parquet::RowGroupPrefetchSync;
 
         let scan_source = source;
         let config = self.options.clone();
         let verbose = config::verbose();
 
+        //kdn MARK
         let byte_source_builder =
             if scan_source.is_cloud_url() || polars_config::config().force_async() {
                 DynByteSourceBuilder::ObjectStore(FetchConfig::random_access())
             } else {
-                DynByteSourceBuilder::Mmap
+                //kdn TOGGLE
+                DynByteSourceBuilder::IoUring
+                // DynByteSourceBuilder::Mmap
             };
 
         let pipeline_budget = self

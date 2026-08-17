@@ -255,6 +255,7 @@ pub(super) async fn parquet_file_info(
     bytes_per_source: Option<&[u64]>,
     #[allow(unused)] cloud_options: Option<&polars_io::cloud::CloudOptions>,
 ) -> PolarsResult<(FileInfo, MetadataPerSource)> {
+    dbg!("start parquet_file_info");
     use futures::stream::{FuturesOrdered, FuturesUnordered, StreamExt};
     use polars_core::error::feature_gated;
 
@@ -566,6 +567,7 @@ async fn read_parquet_metadata(
     source: ScanSourceRef<'_>,
     #[allow(unused)] cloud_options: Option<&polars_io::cloud::CloudOptions>,
 ) -> PolarsResult<FileMetadataRef> {
+    dbg!("start read_parquet_metadata"); //kdn
     use polars_core::error::feature_gated;
 
     if source.is_cloud_url() {

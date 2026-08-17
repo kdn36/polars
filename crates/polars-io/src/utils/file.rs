@@ -327,6 +327,7 @@ mod async_writable {
             cloud_upload_concurrency: usize,
             io_metrics: Option<Arc<IOMetrics>>,
         ) -> PolarsResult<Self> {
+            dbg!("start AsyncWritable::try_new"); 
             // TODO: Native async impl
             Writable::try_new(
                 path,

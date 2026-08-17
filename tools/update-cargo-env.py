@@ -22,6 +22,8 @@ env["PYO3_ENVIRONMENT_SIGNATURE"] = (
 env["PYO3_PYTHON"] = str(python_path)
 
 if os.environ.get("RUSTFLAGS"):
+    #kdn
+    print(os.environ.get("RUSTFLAGS"))
     build["rustflags"] = os.environ.get("RUSTFLAGS")
 else:
     build.pop("rustflags", None)
@@ -32,6 +34,8 @@ else:
     env.pop("CFLAGS", None)
 
 toml["env"] = env
+#kdn
+toml["build"] = build
 
 # On linux, building with dev profile might fail at link time, because debug symbols
 # exceed 4 GB. Unless "profile.dev.split-debuginfo" is set already, set it to "unpacked"
