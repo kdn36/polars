@@ -360,7 +360,22 @@ impl ByteSource for IoUringByteSource {
                         std::alloc::handle_alloc_error(layout)
                     }
                     let raw = unsafe { std::slice::from_raw_parts_mut(ptr, span) };
-                    file.read_exact_at(raw, lo)?;
+
+                    if hi <= size {
+                        file.read_exact_at(raw, lo)?;
+                    } else {
+                        // Last block: O_DIRECT rejects an unaligned length, and the aligned
+                        // length runs past EOF. Read what exists, leave the tail untouched.
+                        let mut filled = 0;
+                        while (lo + filled as u64) < size {
+                            let n = file.read_at(&mut raw[filled..], lo + filled as u64)?;
+                            if n == 0 {
+                                break;
+                            }
+                            filled += n;
+                        }
+                    }
+                    // file.read_exact_at(raw, lo)?;
 
                     let owner = AlignedBuf {
                         ptr,
