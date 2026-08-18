@@ -111,7 +111,7 @@ strum = "0.28"
 strum_macros = "0.28"
 thread_local = "1.1.9"
 # kdn TODO gating
-tokio = { version = "1.53.1", default-features = false }
+tokio = { version = "1.52.3", default-features = false }
 # tokio = { version = "1.53.1", features = ["rt", "fs","io-uring"] }
 # tokio = { version = "1.44", default-features = false }
 unicode-normalization = "0.1.24"
@@ -180,7 +180,7 @@ question_mark = "allow"  # https://github.com/rust-lang/rust-clippy/issues/17384
 object_store = { git = "https://github.com/kdn36/arrow-rs-object-store", rev = "f50a6e5c564b2b5933eca15cd20ff9b5614374a1" }
 color-backtrace = { git = "https://github.com/orlp/color-backtrace", rev = "bb62ccf1e9eb1f6b7af5f16acff1fd7151a876dd" }
 #kdn
-# tokio = { path = "../other/tokio/tokio" }
+tokio = { path = "../other/tokio/tokio" }
 
 # https://github.com/tikv/jemallocator/pull/168
 tikv-jemalloc-sys = { git = "https://github.com/pola-rs/jemallocator", rev = "0d683dfb157097e2075d5e0eaf25f71f514a7552" }

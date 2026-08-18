@@ -185,7 +185,7 @@ pub struct IoUringByteSource {
     size: u64,
 
     //kdn experiment: pread path
-    std_file: Arc<std::fs::File>,
+    std_file: Option<Arc<std::fs::File>>,
 }
 
 struct Lease<'a> {
@@ -270,16 +270,20 @@ impl IoUringByteSource {
 
         // kdn experiment pread
         //kdn TODO feature gate
-        let std_file = Arc::new(if *PLDEV_PREAD_O_DIRECT {
-            dbg!("IoUringByteSource::try_new_from_path open std_file with O_DIRECT");
-            OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_DIRECT)
-                .open(path)?
+        let std_file = if *PLDEV_PREAD {
+            Some(Arc::new(if *PLDEV_PREAD_O_DIRECT {
+                dbg!("IoUringByteSource::try_new_from_path open std_file with O_DIRECT");
+                OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_DIRECT)
+                    .open(path)?
+            } else {
+                dbg!("IoUringByteSource::try_new_from_path open std_file");
+                std::fs::File::open(path)?
+            }))
         } else {
-            dbg!("IoUringByteSource::try_new_from_path open std_file");
-            std::fs::File::open(path)?
-        });
+            None
+        };
 
         Ok(IoUringByteSource {
             free: Mutex::new(vec![file]),
@@ -329,7 +333,7 @@ impl ByteSource for IoUringByteSource {
         assert!(range.end as u64 <= self.size);
 
         if *PLDEV_PREAD {
-            let file = self.std_file.clone();
+            let file = self.std_file.clone().unwrap();
             let offset = range.start as u64;
             let len = range.len();
             let size = self.size;
@@ -363,7 +367,7 @@ impl ByteSource for IoUringByteSource {
                         len: span,
                         layout,
                     };
-                    Ok(Buffer::from_owner(owner).sliced(pad..pad + len))    
+                    Ok(Buffer::from_owner(owner).sliced(pad..pad + len))
                 } else {
                     let mut buf = Vec::with_capacity(len);
                     unsafe { buf.set_len(len) };
@@ -376,49 +380,9 @@ impl ByteSource for IoUringByteSource {
             return result;
         }
 
-        //kdn experiment PREAD
-        // if *PLDEV_PREAD {
-        //     if *PLDEV_PREAD_O_DIRECT {
-        //         const ALIGN: usize = 4096;
-
-        //         let offset = range.start as u64;
-        //         let lo = offset & !(ALIGN as u64 - 1);
-        //         let hi = (offset + len as u64).next_multiple_of(ALIGN as u64);
-        //         let span = (hi - lo) as usize;
-        //         let pad = (offset - lo) as usize;
-
-        //         let layout = Layout::from_size_align(span, ALIGN).unwrap();
-        //         let ptr = unsafe { alloc(layout) };
-        //         let raw = unsafe { std::slice::from_raw_parts_mut(ptr, span) };
-        //         o_direct_file.read_exact_at(raw, lo)?;
-
-        //         // hand ownership downstream, then trim
-        //         let owner = AlignedBuf { ptr, layout };
-        //         return OK(Buffer::from_owner(owner).sliced(pad..pad + len));
-        //     } else {
-        //         let file = self.std_file.clone();
-        //         let offset = range.start as u64;
-        //         let len = range.len();
-        //         let buf = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
-        //             let _g = InFlightGuard::new();
-        //             let mut buf = Vec::with_capacity(len);
-        //             unsafe { buf.set_len(len) };
-        //             file.read_exact_at(&mut buf, offset)?;
-        //             Ok(buf)
-        //         })
-        //         .await
-        //         .expect("blocking task panicked")?;
-        //         return Ok(Buffer::from(buf));
-        //     }
-        // }
-
         let mut lease = self.lease().await?;
         let file = lease.file();
-        //kdn HACK
-        // let t0 = Instant::now();
         file.seek(SeekFrom::Start(range.start as u64)).await?;
-        // eprintln!("seek: {:?}", t0.elapsed().as_micros());
-
 
         let mut buf = Vec::with_capacity(range.len());
         //kdn TODO
