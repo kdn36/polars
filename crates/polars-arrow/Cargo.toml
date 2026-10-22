@@ -96,6 +96,7 @@ io_flight = ["io_ipc", "polars-arrow-format/flight-data", "async-stream", "futur
 io_avro = ["avro-schema", "polars-error/avro-schema"]
 io_avro_compression = [
   "avro-schema/compression",
+  "zstd",
 ]
 io_avro_async = ["avro-schema/async"]
 

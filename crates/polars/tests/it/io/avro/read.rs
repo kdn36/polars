@@ -209,10 +209,10 @@ pub(super) fn read_avro(
 ) -> PolarsResult<(RecordBatchT<Box<dyn Array>>, ArrowSchema)> {
     let file = &mut avro;
 
-    let metadata = read_metadata(file)?;
+    let (metadata, codec) = read_metadata(file)?;
     let schema = read::infer_schema(&metadata.record)?;
 
-    let mut reader = read::Reader::new(file, metadata, schema.clone(), projection.clone());
+    let mut reader = read::Reader::new(file, metadata, codec, schema.clone(), projection.clone());
 
     let schema = if let Some(projection) = projection {
         schema
@@ -255,12 +255,30 @@ fn read_snappy() -> PolarsResult<()> {
 }
 
 #[test]
+fn read_zstandard() -> PolarsResult<()> {
+    test(Codec::Zstandard(ZstandardSettings::default()))
+}
+
+#[test]
 fn read_unsupported_codec() {
-    let avro = write_avro(Codec::Zstandard(ZstandardSettings::default())).unwrap();
+    // Writing real xz needs apache-avro's `xz` feature, so rename the header codec "null" -> "xz".
+    // `\x14`, `\x08`, `\x04` are the zigzag string lengths 10, 4, 2.
+    let avro = write_avro(Codec::Null).unwrap();
+    let header = b"\x14avro.codec\x08null".as_slice();
+    let pos = avro
+        .windows(header.len())
+        .position(|w| w == header)
+        .unwrap();
+    let avro = [
+        &avro[..pos],
+        b"\x14avro.codec\x04xz",
+        &avro[pos + header.len()..],
+    ]
+    .concat();
+
     let err = read_avro(&avro, None).unwrap_err();
     assert!(
-        err.to_string()
-            .contains("unsupported Avro codec \"zstandard\""),
+        err.to_string().contains("unsupported Avro codec \"xz\""),
         "{err}"
     );
 }

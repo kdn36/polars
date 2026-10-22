@@ -1,7 +1,7 @@
 //! APIs to read from Avro format to arrow.
 use std::io::Read;
 
-use avro_schema::file::FileMetadata;
+use avro_schema::file::{Block, Compression, FileMetadata};
 use avro_schema::read::fallible_streaming_iterator::FallibleStreamingIterator;
 use avro_schema::read::{BlockStreamingIterator, block_iterator};
 use avro_schema::schema::Field as AvroField;
@@ -20,12 +20,21 @@ use crate::array::Array;
 use crate::datatypes::ArrowSchema;
 use crate::record_batch::RecordBatchT;
 
-/// Reads the metadata of an Avro file, like [`avro_schema::read::read_metadata`], but
-/// errors on codecs that can't be decompressed.
+/// The Avro codecs that can be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Codec {
+    Null,
+    Deflate,
+    Snappy,
+    Zstandard,
+}
+
+/// Reads the metadata and codec of an Avro file, like [`avro_schema::read::read_metadata`],
+/// but errors on codecs that can't be decompressed.
 ///
 /// `avro_schema` treats any codec other than `deflate` and `snappy` as uncompressed, which
 /// would decode compressed blocks as raw records.
-pub fn read_metadata<R: Read>(reader: &mut R) -> PolarsResult<FileMetadata> {
+pub fn read_metadata<R: Read>(reader: &mut R) -> PolarsResult<(FileMetadata, Codec)> {
     let mut header = RecordingReader {
         reader,
         bytes: Vec::new(),
@@ -37,17 +46,18 @@ pub fn read_metadata<R: Read>(reader: &mut R) -> PolarsResult<FileMetadata> {
         },
         err => err,
     })?;
-    if let Some(codec) = codec
-        && !matches!(codec.as_slice(), b"null" | b"deflate" | b"snappy")
-    {
-        polars_bail!(
-            ComputeError: "unsupported Avro codec {:?}; supported codecs are null, deflate and snappy",
-            String::from_utf8_lossy(&codec)
-        );
-    }
-    Ok(avro_schema::read::read_metadata(
-        &mut header.bytes.as_slice(),
-    )?)
+    let codec = match codec.as_deref() {
+        None | Some(b"null") => Codec::Null,
+        Some(b"deflate") => Codec::Deflate,
+        Some(b"snappy") => Codec::Snappy,
+        Some(b"zstandard") => Codec::Zstandard,
+        Some(codec) => polars_bail!(
+            ComputeError: "unsupported Avro codec {:?}; supported codecs are null, deflate, snappy and zstandard",
+            String::from_utf8_lossy(codec)
+        ),
+    };
+    let metadata = avro_schema::read::read_metadata(&mut header.bytes.as_slice())?;
+    Ok((metadata, codec))
 }
 
 /// Reads the magic, header and marker of an Avro file and returns its `avro.codec`.
@@ -109,26 +119,54 @@ impl<R: Read> Read for RecordingReader<'_, R> {
     }
 }
 
+/// Decompresses a zstandard block into `decompressed`, reusing its buffer.
+#[cfg(feature = "io_avro_compression")]
+fn decompress_zstandard(block: &Block, decompressed: &mut Block) -> PolarsResult<()> {
+    decompressed.number_of_rows = block.number_of_rows;
+    decompressed.data.clear();
+    zstd::Decoder::with_buffer(block.data.as_slice())
+        .and_then(|mut decoder| decoder.read_to_end(&mut decompressed.data))
+        .map_err(|err| polars_err!(ComputeError: "invalid zstandard Avro block: {err}"))?;
+    Ok(())
+}
+
+#[cfg(not(feature = "io_avro_compression"))]
+fn decompress_zstandard(_block: &Block, _decompressed: &mut Block) -> PolarsResult<()> {
+    polars_bail!(ComputeError: "reading zstandard Avro files requires the `io_avro_compression` feature")
+}
+
 /// Single threaded, blocking reader of Avro; [`Iterator`] of [`RecordBatchT`].
 pub struct Reader<R: Read> {
     iter: BlockStreamingIterator<R>,
+    codec: Codec,
+    decompressed: Block,
     avro_fields: Vec<AvroField>,
     fields: ArrowSchema,
     projection: Vec<bool>,
 }
 
 impl<R: Read> Reader<R> {
-    /// Creates a new [`Reader`].
+    /// Creates a new [`Reader`]. `codec` comes from [`read_metadata`] and overrides
+    /// `metadata.compression`.
     pub fn new(
         reader: R,
         metadata: FileMetadata,
+        codec: Codec,
         fields: ArrowSchema,
         projection: Option<Vec<bool>>,
     ) -> Self {
         let projection = projection.unwrap_or_else(|| fields.iter().map(|_| true).collect());
+        let compression = match codec {
+            Codec::Deflate => Some(Compression::Deflate),
+            Codec::Snappy => Some(Compression::Snappy),
+            // `avro_schema` can't decompress zstandard; `next` does.
+            Codec::Null | Codec::Zstandard => None,
+        };
 
         Self {
-            iter: block_iterator(reader, metadata.compression, metadata.marker),
+            iter: block_iterator(reader, compression, metadata.marker),
+            codec,
+            decompressed: Block::default(),
             avro_fields: metadata.record.fields,
             fields,
             projection,
@@ -148,10 +186,16 @@ impl<R: Read> Iterator for Reader<R> {
         let fields = &self.fields;
         let avro_fields = &self.avro_fields;
         let projection = &self.projection;
+        let codec = self.codec;
+        let decompressed = &mut self.decompressed;
 
-        self.iter
-            .next()
-            .transpose()
-            .map(|maybe_block| deserialize(maybe_block?, fields, avro_fields, projection))
+        self.iter.next().transpose().map(|maybe_block| {
+            let mut block = maybe_block?;
+            if codec == Codec::Zstandard {
+                decompress_zstandard(block, decompressed)?;
+                block = decompressed;
+            }
+            deserialize(block, fields, avro_fields, projection)
+        })
     }
 }
