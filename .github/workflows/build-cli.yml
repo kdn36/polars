@@ -1,0 +1,52 @@
+name: Build CLI
+
+# Builds the `polars` command on the targets it is planned to ship on first, and runs a query
+# with it. Started by hand only.
+on:
+  workflow_dispatch:
+  # TEMPORARY, for trying this on a fork before it is on a default branch. Remove before the PR.
+  push:
+    branches:
+      - polars-cli-ci
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTFLAGS: -C debuginfo=0 # Do not produce debug symbols to keep memory usage down
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Rust
+        run: rustup show
+
+      # As in the Python release: the binary must also run on kernels with 64 KiB pages.
+      - name: Set jemalloc for aarch64 Linux
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
+
+      - name: Build
+        run: cargo build --locked -p polars-cli --target ${{ matrix.target }}
+
+      - name: Run a query on a file
+        run: >
+          target/${{ matrix.target }}/debug/polars --format csv -c
+          "SELECT category, COUNT(*) AS n FROM read_csv('examples/datasets/foods1.csv')
+          GROUP BY category ORDER BY category"
