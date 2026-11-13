@@ -1,7 +1,7 @@
 name: Build CLI
 
-# Builds the `polars` command on the targets it is planned to ship on first, and runs a query
-# with it. Started by hand only.
+# Builds the `polars` command on the targets of the Python release (`release-python.yml`) and
+# runs a query with it. Started by hand only.
 on:
   workflow_dispatch:
   # TEMPORARY, for trying this on a fork before it is on a default branch. Remove before the PR.
@@ -17,6 +17,10 @@ env:
   RUSTFLAGS: -C debuginfo=0 # Do not produce debug symbols to keep memory usage down
   RUST_BACKTRACE: 1
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -28,18 +32,41 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
           - target: aarch64-apple-darwin
             os: macos-15
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
 
     steps:
       - uses: actions/checkout@v7
 
+      # After the checkout, which the local action needs.
+      - name: Set up the build environment (ARM64 Windows)
+        if: matrix.os == 'windows-11-arm'
+        uses: ./.github/actions/setup-windows-arm64
+
       - name: Set up Rust
-        run: rustup show
+        run: |
+          rustup show
+          rustup target add ${{ matrix.target }}
+
+      - name: Install the C compiler for musl
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
 
       # As in the Python release: the binary must also run on kernels with 64 KiB pages.
       - name: Set jemalloc for aarch64 Linux
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: startsWith(matrix.target, 'aarch64-unknown-linux')
         run: echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
       - name: Build
