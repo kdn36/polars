@@ -48,11 +48,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # After the checkout, which the local action needs.
-      - name: Set up the build environment (ARM64 Windows)
-        if: matrix.os == 'windows-11-arm'
-        uses: ./.github/actions/setup-windows-arm64
-
       - name: Set up Rust
         run: |
           rustup show
@@ -63,6 +58,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
+
+      # GCC's out-of-line atomics come from a libgcc that is built for glibc and does not link
+      # against musl, so the C dependencies use inline atomics.
+      - name: Set the C flags for aarch64 musl
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: echo "CFLAGS_aarch64_unknown_linux_musl=-mno-outline-atomics" >> $GITHUB_ENV
 
       # As in the Python release: the binary must also run on kernels with 64 KiB pages.
       - name: Set jemalloc for aarch64 Linux
